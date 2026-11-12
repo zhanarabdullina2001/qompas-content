@@ -1,4 +1,4 @@
-// Отрисовка слайдов .dc.html в JPG 1080x1350.
+// Отрисовка слайдов .dc.html в JPG. Размер берётся из $preview в data-props (по умолчанию 1080x1350; сторис — 1080x1920).
 // Установка: cd tools && npm i   (Playwright уже есть в среде)
 // Запуск:    node tools/render.js <папка_вывода> <slide1.dc.html> [slide2.dc.html ...]
 // Картинки /_blob/<id> берутся из tools/peeps/<id>.svg (добавляйте новые туда с тем же id).
@@ -7,9 +7,10 @@ const fs=require('fs'),path=require('path'),{chromium}=require('playwright');
 const peeps=path.join(__dirname,'peeps');
 const fsDir=path.join(__dirname,'node_modules/@fontsource');
 const fontLinks=fs.readdirSync(fsDir).flatMap(f=>fs.readdirSync(path.join(fsDir,f)).filter(c=>/^\d+(-italic)?\.css$/.test(c)).map(c=>`<link rel="stylesheet" href="file://${path.join(fsDir,f,c)}">`)).join('\n');
+function getProps(src){const m=src.match(/data-props='([^']*)'/);let props={};
+  if(m){try{props=JSON.parse(m[1].replace(/&#39;/g,"'").replace(/&amp;/g,'&'))}catch(e){}}return props}
 function toHtml(src){
-  const m=src.match(/data-props='([^']*)'/);let props={};
-  if(m){try{props=JSON.parse(m[1].replace(/&#39;/g,"'").replace(/&amp;/g,'&'))}catch(e){}}
+  const props=getProps(src);
   const helmet=(src.match(/<helmet>([\s\S]*?)<\/helmet>/)||['',''])[1].replace(/<link[^>]*fonts\.googleapis[^>]*>/g,'');
   let body=(src.match(/<\/helmet>([\s\S]*?)<\/x-dc>/)||['',''])[1];
   body=body.replace(/\{\{\s*([\w$]+)\s*\}\}/g,(_,k)=>props[k]&&props[k].default!==undefined?props[k].default:'');
@@ -18,8 +19,9 @@ function toHtml(src){
 }
 (async()=>{let [out,...files]=process.argv.slice(2);out=path.resolve(out);fs.mkdirSync(out,{recursive:true});
  const b=await chromium.launch();const p=await b.newPage({viewport:{width:1080,height:1350},deviceScaleFactor:1});
- let i=1;for(const f of files){const tmp=path.join(out,'_tmp.html');fs.writeFileSync(tmp,toHtml(fs.readFileSync(f,'utf8')));
+ let i=1;for(const f of files){const src=fs.readFileSync(f,'utf8');const pv=getProps(src).$preview||{};const W=pv.width||1080,H=pv.height||1350;
+  await p.setViewportSize({width:W,height:H});const tmp=path.join(out,'_tmp.html');fs.writeFileSync(tmp,toHtml(src));
   await p.goto('file://'+tmp);await p.evaluate(()=>document.fonts.ready);await p.waitForTimeout(300);
-  const name=String(i++).padStart(2,'0')+'.jpg';await p.screenshot({path:path.join(out,name),type:'jpeg',quality:90,clip:{x:0,y:0,width:1080,height:1350}});
+  const name=String(i++).padStart(2,'0')+'.jpg';await p.screenshot({path:path.join(out,name),type:'jpeg',quality:90,clip:{x:0,y:0,width:W,height:H}});
   console.log('ok',name,path.basename(f));}
  fs.rmSync(path.join(out,'_tmp.html'),{force:true});await b.close();})();
